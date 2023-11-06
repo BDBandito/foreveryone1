@@ -1,0 +1,110 @@
+%inlämningsuppift 2
+%Oskar Andersson
+clear; clc; close all;
+
+% Initialtillstånd. Givna från instruktioner
+alfa0 = 0.25; % 25% void
+T0_bransle = 1000+273; % Bränsletemp [K]
+P0 = 150; % Längdeffekt i bränslestav [W/cm]
+k0 = 1.02; % Multiplikationsfaktorn när reaktorn är prompt kritisk
+VmVb = 2.8; % Geometriska volymförhållandet mellan moderator och bränsle
+rho_UO2 = 10.5 ; % Densitet för urandioxid [g/cm^3]
+stav_diameter = 1; % bränslestavsdiameter [cm]
+cp_UO2 = 0.4; % värmekapacitet för urandioxid [kJ/kgK]
+U_vatten = 14.3; % Värmeövergångstalet från kapslingen till vätska (ingen ånga) [W/cm/K]
+P_modkyl = 150; % [W/cm]
+Lambda = 0.0001; % Medellivslängd för prompta neutroner [s]
+dkdalfa = -100*10^-5 ; % Voidkoefficient dk/dα: -100 pcm per procent void (förändring i reaktivitet, vid förändring i void)
+dkdT = -4*10^-5 ; % Bränsletemperaturkoefficient dk/dT:  -4 pcm K-1 (förändring i reaktivitet, vid förändring i bränsletemperatur)
+
+% Andra konstanter
+stav_h = 1; % Bränslestavshöjd [cm], vald för att få effekt: [P/cm]
+rho_anga = 36.52*10e-6; %densitet för ånga vid 70 bar [kg/cm^3], tagen från Efunda
+Deltah = 1506e3; % J/kg, tagen från "F08 Värmebalanser ånga void" från kursmaterialet
+
+% Beräkning av använda konstanter
+V_bransle = (stav_diameter/2)^2 * pi * stav_h; % Volym bränsle [cm^3]
+m_bransle = V_bransle * rho_UO2; % Massa för bränslet [g]
+V_mod = V_bransle * VmVb; % Volym moderator [cm^3]
+
+
+timestep = Lambda; %Tidssteget går efter varje ny generation givet av medelivslängden av prompta neutronen
+t_max = 2; % Den undersökta tidsrymden går från 0 - 2 sekunder
+t = linspace(0,2,t_max/timestep); % Alla tidssteg i en matris
+
+%Skapar tomma platser för effekten
+P = zeros(1,t_max/timestep);
+P(1) = P0;
+
+%Skapar tomma platser för effekten och sätter plats 1 till initialvärdet
+T_bransle = zeros(1,t_max/timestep);
+T_bransle(1) = T0_bransle;
+
+%Skapar tomma platser för multiplikationsfaktorn och sätter plats 1 till initialvärdet
+k = zeros(1,t_max/timestep);
+k(1) = k0;
+
+%Skapar tomma platser för voiden och sätter plats 1 till initialvärdet
+alfa = zeros(1,t_max/timestep);
+alfa(1) = alfa0;
+
+%Skapar tomma platser för kapslingstemperaturen och sätter plats 1 till initialvärdet
+T_kapsling = zeros(1,t_max/timestep);
+T_kapsling(1) = T0_bransle - 700;
+
+%Skapar tomma platser för värmeöverföringskoefficienten och sätter plats 1 till initialvärdet
+U = zeros(1,t_max/timestep);
+U(1) = U_vatten*(1-alfa0);
+
+%Skapar tomma platser för 
+P_varmeoverforing = zeros(1,t_max/timestep);
+P_varmeoverforing(1) = U(1)*T_kapsling(1);
+
+
+% Beräkning av bränsletemperatur, void, multiplikationsfaktor och effekt över tid med Euler framåt.
+% Euler framåt börjar med initialvärden, i denna inlämningsuppgift är de givna. 
+% Sedan väljs ett lämpligt tidssteg, desto kortare desto bättre upplösning och noggrannhet.
+% Vi använder sedan differentialekvationerna för att beräkna derivatan vid
+% den aktuella punkten för att sedan approximera vad nästa punkts värde ska vara. 
+% Beräkningen görs med hjälp av en for-loop som går över alla tidssteg
+for i = 2:length(t)
+    DeltaT_bransle = ((P(i-1)-P_modkyl)*timestep)/(m_bransle*cp_UO2); % förändring av bränsletemperatur
+    T_bransle(i) = T_bransle(i-1) + DeltaT_bransle; % Den 'totala' bränsletemperaturen adderat med förändringen
+    U(i) = U_vatten*(1-alfa(i-1)); % Värmeöverföringskoefficient, här antas ånga ha väldigt liten påverkan. Därför beaktas endast vattnet.
+    T_kapsling(i) = T_bransle(i-1) - 700; % Temperatur för kapsling. Antagande om att det alltid är 700 grader lägre än bränslet.
+    P_varmeoverforing(i) = U(i) * T_kapsling(i-1); % Effekten som leds till moderatorn från kapslingen
+    Deltaalfa = ((P_varmeoverforing(i-1)-P_modkyl)*timestep)/(Deltah*rho_anga*V_mod); % Förändring av void
+    alfa(i) = alfa(i-1) + Deltaalfa; % Den 'totala' voiden adderas med förändringen
+    k(i) = k(i-1) + dkdalfa*Deltaalfa + dkdT*DeltaT_bransle; % Beräkning av multiplikationsfaktorn
+    P(i) =  P(i-1) * exp(((k(i-1)-1)*timestep)/Lambda); % Beräkning av effekten
+end
+
+
+%Plot av effekt
+figure;
+subplot(4, 1, 1);
+plot(t, P,'color','b');
+title('Förändring av termisk effekt per centimeter bränsle');
+xlabel('Tid [s]')
+ylabel('Effekt [W/cm]')
+
+%Plot av temperatur
+subplot(4, 1, 2);
+plot(t, T_bransle,'color','r');
+title('Temperaturförändring');
+xlabel('Tid [s]')
+ylabel('Temperatur [K]')
+
+%Plot av multiplikationsfaktor
+subplot(4, 1, 3);
+plot(t, k,'color','y');
+title('Förändring av multiplikationsfaktorn');
+xlabel('Tid [s]')
+ylabel('k [-]') % enhetslös
+
+%Plot av void
+subplot(4, 1, 4);
+plot(t, alfa,'color','g');
+title('Förändring av void');
+xlabel('Tid [s]')
+ylabel('\alpha [%]')
